@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  shard0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SHARD_ID: 0
+    environment:
+      - SHARD_ID=0
+    ports:
+      - "3000:3000"
+    container_name: node-shard0
+
+  shard1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SHARD_ID: 1
+    environment:
+      - SHARD_ID=1
+    ports:
+      - "3001:3000"
+    container_name: node-shard1
+
+  shard2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SHARD_ID: 2
+    environment:
+      - SHARD_ID=2
+    ports:
+      - "3002:3000"
+    container_name: node-shard2

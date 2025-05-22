@@ -1,0 +1,92 @@
+Checking if the server is running...
+Server is running. Proceeding with tests...
+Connected to MongoDB for seeding
+Database cleared
+Airlines created 3
+Aircraft created 4
+Terminals created: 3
+Gates created 5
+Passengers created 4
+Flights created: 3
+Tickets created: 4
+Database seeded successfully!
+
+--- Starting API Tests ---
+
+Testing Airline endpoints:
+GET /airlines: 200 - Found 3 airlines
+GET /airlines/:id: 200 - Found airline: Garuda Indonesia
+
+Testing Aircraft endpoints:
+GET /aircraft: 200 - Found 4 aircraft
+GET /aircraft/:id: 200 - Found aircraft: Boeing 777-300ER
+
+Testing Terminal endpoints:
+GET /terminals: 200 - Found 3 terminals
+GET /terminals/:id: 200 - Found terminal: Terminal 1
+
+Testing Gate endpoints:
+GET /gates: 200 - Found 5 gates
+GET /gates/:id: 200 - Found gate: A1
+
+Testing Passenger endpoints:
+GET /passengers: 200 - Found 4 passengers
+GET /passengers/:id: 200 - Found passenger: John Doe
+
+Testing Flight endpoints:
+GET /flights: 200 - Found 3 flights
+GET /flights/:id: 200 - Found flight from Jakarta (CGK) to Singapore (SIN)
+
+Testing Ticket endpoints:
+GET /tickets: 200 - Found 4 tickets
+GET /tickets/:id: 200 - Found ticket: seat 12A, class Bisnis
+
+Testing POST /passengers endpoint:
+POST /passengers: 201 - Created passenger with ID: 681c5eff4a8642fd7f93dd7a
+
+Testing PUT /passengers/:id endpoint:
+PUT /passengers/:id: 200 - Updated passenger with new address: Updated: Jl. Diponegoro No. 202, Surabaya
+
+Testing DELETE /passengers/:id endpoint:
+DELETE /passengers/:id: 200 - Passenger deleted successfully
+
+--- API Tests Completed Successfully ---
+Disconnected from MongoDB
+
+--- Testing Bulk Operations for DB Efficiency ---
+
+Testing Bulk Passenger Creation:
+
+Testing batch size: 10 passengers
+Batch size: 10, Total time: 109 ms, Server processing time: 96 ms
+Average time per record: 10.9 ms
+Success: Created 10 passengers
+
+Testing batch size: 100 passengers
+Batch size: 100, Total time: 431 ms, Server processing time: 423 ms
+Average time per record: 4.31 ms
+Success: Created 100 passengers
+
+Testing batch size: 200 passengers
+Batch size: 200, Total time: 591 ms, Server processing time: 580 ms
+Average time per record: 2.955 ms
+Success: Created 200 passengers
+
+Testing Bulk Aircraft Creation:
+
+Testing batch size: 10 aircraft
+Batch size: 10, Total time: 68 ms, Server processing time: 63 ms
+Average time per record: 6.8 ms
+Success: Created 10 aircraft
+
+Testing batch size: 50 aircraft
+Batch size: 50, Total time: 428 ms, Server processing time: 423 ms
+Average time per record: 8.56 ms
+Success: Created 50 aircraft
+
+Testing batch size: 100 aircraft
+Batch size: 100, Total time: 566 ms, Server processing time: 558 ms
+Average time per record: 5.66 ms
+Success: Created 100 aircraft
+
+--- Bulk Operation Tests Completed ---

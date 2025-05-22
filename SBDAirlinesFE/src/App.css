@@ -1,0 +1,125 @@
+#root {
+  margin: 0 auto;
+  padding: 0;
+  text-align: center;
+  min-height: 100%;
+  width: 100%;
+  overflow-y: auto;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+.content {
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.glow {
+  box-shadow: 0 0 25px rgba(59, 130, 246, 0.5), 
+              0 0 50px rgba(59, 130, 246, 0.3);
+  animation: pulse 3s infinite alternate ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 25px rgba(59, 130, 246, 0.5), 
+                0 0 50px rgba(59, 130, 246, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 35px rgba(59, 130, 246, 0.6), 
+                0 0 70px rgba(124, 58, 237, 0.4);
+  }
+}
+
+html, body {
+  height: 100%;
+  overflow-y: auto;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.enable-scroll {
+  pointer-events: auto !important;
+  z-index: auto !important;
+  position: relative !important;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Add this to the bottom of your App.css file */
+
+.tag-content {
+  display: inline-flex;
+  transition: transform 0.5s ease-out;
+  padding-right: 16px; /* Add some padding at the end for smoother scrolling */
+}
+
+/* Add a nice transition when hovering over tags */
+.tag-content span {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.tag-content span:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
