@@ -7,17 +7,14 @@ const penumpangSchema = new mongoose.Schema({
   },
   nomor_passport: {
     type: String,
-    unique: true,
     sparse: true
   },
   nomor_identitas: {
     type: String,
-    unique: true,
     sparse: true
   },
   nomor_telepon: {
     type: String,
-    unique: true,
     sparse: true
   },
   email: {

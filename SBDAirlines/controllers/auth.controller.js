@@ -5,6 +5,7 @@ const register = async (req, res) => {
   try {
     const { username, email, password, name, nomor_identitas, nomor_telepon, kewarganegaraan, role } = req.body;
 
+    // Check if user already exists with the same email or username
     const existingUser = await User.findOne({ 
       $or: [{ email }, { username }] 
     });
@@ -15,17 +16,59 @@ const register = async (req, res) => {
       });
     }
 
+    // Validasi email (wajib)
+    if (email) {
+      // Cek apakah email sudah digunakan
+      const existingPassenger = await Penumpang.findOne({ email });
+      if (existingPassenger) {
+        return res.status(400).json({
+          message: 'A passenger with this email already exists.'
+        });
+      }
+      
+      // Nomor identitas dan nomor telepon adalah opsional
+      // Hanya validasi jika disediakan oleh pengguna
+      if (nomor_identitas && nomor_identitas.trim() !== '') {
+        const existingWithIdentitas = await Penumpang.findOne({ nomor_identitas });
+        if (existingWithIdentitas) {
+          return res.status(400).json({
+            message: 'The ID number is already in use. Please use a different one.'
+          });
+        }
+      }
+      
+      if (nomor_telepon && nomor_telepon.trim() !== '') {
+        const existingWithTelepon = await Penumpang.findOne({ nomor_telepon });
+        if (existingWithTelepon) {
+          return res.status(400).json({
+            message: 'The phone number is already in use. Please use a different one.'
+          });
+        }
+      }
+    }
+
     const passengerName = name || username;
     const nationality = kewarganegaraan || 'Not Specified';
     
     try {
+      // Buat object passenger baru
       const newPassenger = new Penumpang({
         nama_penumpang: passengerName,
-        nomor_identitas: nomor_identitas || '',
-        nomor_telepon: nomor_telepon || '',
-        email,
-        kewarganegaraan: nationality
+        email: email
       });
+      
+      // Tambahkan field opsional hanya jika disediakan
+      if (nomor_identitas && nomor_identitas.trim() !== '') {
+        newPassenger.nomor_identitas = nomor_identitas;
+      }
+      
+      if (nomor_telepon && nomor_telepon.trim() !== '') {
+        newPassenger.nomor_telepon = nomor_telepon;
+      }
+      
+      if (nationality) {
+        newPassenger.kewarganegaraan = nationality;
+      }
       
       const savedPassenger = await newPassenger.save();
       console.log("Passenger created successfully:", savedPassenger._id);
@@ -57,16 +100,34 @@ const register = async (req, res) => {
     } catch (error) {
       console.error("Error during registration:", error);
       
+      // Clean up passenger if we created one but failed to create the user
       const passenger = await Penumpang.findOne({ email });
       if (passenger) {
         await Penumpang.findByIdAndDelete(passenger._id);
         console.log("Cleaned up orphaned passenger record:", passenger._id);
       }
       
+      if (error.code === 11000 || error.code === 11001) {
+        // This is a MongoDB duplicate key error
+        const field = Object.keys(error.keyPattern)[0];
+        return res.status(400).json({ 
+          message: `The ${field} value already exists. Please use a different value.` 
+        });
+      }
+      
       throw error;
     }
   } catch (error) {
     console.error("Registration error:", error);
+    
+    if (error.code === 11000 || error.code === 11001) {
+      // This is a MongoDB duplicate key error that wasn't caught earlier
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        message: `The ${field} value already exists. Please use a different value.` 
+      });
+    }
+    
     res.status(500).json({ message: error.message });
   }
 };

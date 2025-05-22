@@ -37,8 +37,8 @@ export default function Register() {
       email,
       password,
       name, // Send name for passenger record
-      nomor_identitas,
-      nomor_telepon,
+      nomor_identitas: nomor_identitas.trim(), // Kirim empty string jika kosong
+      nomor_telepon: nomor_telepon.trim(), // Kirim empty string jika kosong
       kewarganegaraan,
       role: 'passenger' // Default role
     };
