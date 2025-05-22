@@ -1,3 +1,0 @@
-{
-  "message": "Operation `penumpangs.find()` buffering timed out after 10000ms"
-}
