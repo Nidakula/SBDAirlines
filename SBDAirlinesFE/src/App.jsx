@@ -11,6 +11,7 @@ import AdminPanel from './pages/adminPage';
 import BookFlight from './pages/bookflight';
 import FlightDetails from './pages/flightDetails';
 import MyTickets from './pages/mytickets';
+import Bookmarks from './pages/bookmarks';
 import './App.css';
 
 export default function App() {
@@ -25,15 +26,15 @@ export default function App() {
           <div className="relative z-10 flex flex-col min-h-screen">
             <Navbar />
 
-            <main className="flex-grow">
-              <Routes>
+            <main className="flex-grow">              <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/admin" element={<AdminPanel />} />
-                <Route path="/bookflight" element={<BookFlight />} /> {/* Add the BookFlight route */}
+                <Route path="/bookflight" element={<BookFlight />} />
                 <Route path="/flight-details/:id" element={<FlightDetails />} />
                 <Route path="/my-tickets" element={<MyTickets />} />
+                <Route path="/bookmarks" element={<Bookmarks />} />
               </Routes>
             </main>
 
