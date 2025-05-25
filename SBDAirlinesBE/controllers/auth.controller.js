@@ -69,7 +69,7 @@ const register = async (req, res) => {
       if (nationality) {
         newPassenger.kewarganegaraan = nationality;
       }
-      
+
       const savedPassenger = await newPassenger.save();
       console.log("Passenger created successfully:", savedPassenger._id);
       
@@ -106,7 +106,7 @@ const register = async (req, res) => {
         await Penumpang.findByIdAndDelete(passenger._id);
         console.log("Cleaned up orphaned passenger record:", passenger._id);
       }
-      
+
       if (error.code === 11000 || error.code === 11001) {
         // This is a MongoDB duplicate key error
         const field = Object.keys(error.keyPattern)[0];
@@ -127,7 +127,7 @@ const register = async (req, res) => {
         message: `The ${field} value already exists. Please use a different value.` 
       });
     }
-    
+
     res.status(500).json({ message: error.message });
   }
 };
