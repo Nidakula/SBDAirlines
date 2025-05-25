@@ -21,8 +21,7 @@ export default function FlightDetails() {
     const [bookingSuccess, setBookingSuccess] = useState(false);
     const [bookingError, setBookingError] = useState(null);
     const [seatMap, setSeatMap] = useState([]);
-
-    useEffect(() => {
+    const [isBookmarked, setIsBookmarked] = useState(false);    useEffect(() => {
         const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
         if (!isLoggedIn) {
             navigate('/login', { state: { redirectTo: `/flight-details/${id}` } });
@@ -45,6 +44,9 @@ export default function FlightDetails() {
                 // Generate demo seat map
                 setSeatMap(generateDemoSeats());
 
+                // Check if flight is bookmarked
+                checkIfBookmarked(response.data._id);
+
             } catch (err) {
                 console.error('Failed to fetch flight details:', err);
                 setError('Failed to load flight details. Please try again.');
@@ -55,6 +57,51 @@ export default function FlightDetails() {
 
         fetchFlightDetails();
     }, [id, navigate]);
+
+    // Check if flight is already bookmarked
+    const checkIfBookmarked = (flightId) => {
+        try {
+            const storedBookmarks = localStorage.getItem('bookmarks');
+            if (storedBookmarks) {
+                const bookmarks = JSON.parse(storedBookmarks);
+                const isAlreadyBookmarked = bookmarks.some(bookmark => bookmark._id === flightId);
+                setIsBookmarked(isAlreadyBookmarked);
+            } else {
+                setIsBookmarked(false);
+            }
+        } catch (err) {
+            console.error('Error checking bookmarks:', err);
+            setIsBookmarked(false);
+        }
+    };
+
+    // Toggle bookmark status
+    const toggleBookmark = () => {
+        if (!flight) return;
+
+        try {
+            let bookmarks = [];
+            const storedBookmarks = localStorage.getItem('bookmarks');
+            
+            if (storedBookmarks) {
+                bookmarks = JSON.parse(storedBookmarks);
+            }
+
+            if (isBookmarked) {
+                // Remove from bookmarks
+                bookmarks = bookmarks.filter(bookmark => bookmark._id !== flight._id);
+                setIsBookmarked(false);
+            } else {
+                // Add to bookmarks
+                bookmarks.push(flight);
+                setIsBookmarked(true);
+            }
+
+            localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+        } catch (err) {
+            console.error('Error toggling bookmark:', err);
+        }
+    };
 
     // Generate demo seats for visualization
     const generateDemoSeats = () => {
@@ -282,8 +329,7 @@ export default function FlightDetails() {
                     </div>
 
                     <div className="p-6">
-                        {/* Airline Info */}
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
+                        {/* Airline Info */}                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 mb-8">
                             <div className="flex items-center gap-4">
                                 <div className={`flex-shrink-0 w-20 h-20 rounded-lg flex items-center justify-center ${darkMode ? 'bg-gradient-to-br from-blue-900 to-indigo-900' : 'bg-gradient-to-br from-blue-500 to-indigo-600'}`}>
                                     <span className="text-2xl font-bold text-white">
@@ -304,6 +350,21 @@ export default function FlightDetails() {
                             </div>
 
                             <div className="flex flex-col items-end">
+                                <div className="flex items-center mb-2">
+                                    <button 
+                                        onClick={toggleBookmark} 
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
+                                            isBookmarked 
+                                                ? darkMode ? 'bg-blue-900/50 text-blue-300 hover:bg-blue-800/50' : 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                                                : darkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        } transition-colors`}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill={isBookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth={isBookmarked ? "0" : "1.5"}>
+                                            <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                                        </svg>
+                                        {isBookmarked ? 'Bookmarked' : 'Add to Bookmarks'}
+                                    </button>
+                                </div>
                                 <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Flight Date</div>
                                 <div className="text-lg font-medium">{formatDate(flight.jadwal_keberangkatan)}</div>
                                 <div className={`mt-2 px-3 py-1 text-xs font-medium rounded-full ${darkMode ? 'bg-blue-900/50 text-blue-300' : 'bg-blue-100 text-blue-800'}`}>
