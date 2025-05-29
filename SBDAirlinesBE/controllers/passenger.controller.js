@@ -51,55 +51,134 @@ const updatePassenger = async (req, res) => {
 };
 
 const deletePassenger = async (req, res) => {
-  try {
-    const deletedPassenger = await Penumpang.findByIdAndDelete(req.params.id);
-    
-    if (!deletedPassenger) {
-      return res.status(404).json({ message: 'Passenger not found' });
-    }
-    
-    res.status(200).json({ message: 'Passenger deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-const bulkCreatePassengers = async (req, res) => {
   const session = await mongoose.startSession();
   
   try {
-    if (!Array.isArray(req.body)) {
-      return res.status(400).json({ message: 'Request body must be an array of passengers' });
-    }
-
-    if (req.body.length === 0) {
-      return res.status(400).json({ message: 'Cannot create empty passenger list' });
-    }
-
-    // Validate data before starting transaction
-    const emailSet = new Set();
-    for (const passenger of req.body) {
-      if (!passenger.email) {
-        throw new Error('All passengers must have an email address');
-      }
-      if (emailSet.has(passenger.email)) {
-        throw new Error(`Duplicate email in request: ${passenger.email}`);
-      }
-      emailSet.add(passenger.email);
-    }
-
     await session.startTransaction({
       readConcern: { level: 'majority' },
       writeConcern: { w: 'majority', j: true }
     });
 
-    const startTime = Date.now();
+    const passengerId = req.params.id;
     
-    // Use insertMany with session for atomic bulk operation
-    const createdPassengers = await Penumpang.insertMany(req.body, { 
-      session,
-      ordered: true // Stop on first error to maintain consistency
+    // Check if passenger exists
+    const passenger = await Penumpang.findById(passengerId).session(session);
+    if (!passenger) {
+      throw new Error('Passenger not found');
+    }
+
+    // Check for existing tickets - prevent deletion if tickets exist
+    const { Tiket } = require('../models/index.model');
+    const existingTickets = await Tiket.countDocuments({ 
+      penumpang_id: passengerId 
+    }).session(session);
+
+    if (existingTickets > 0) {
+      throw new Error(`Cannot delete passenger - ${existingTickets} ticket(s) exist for this passenger`);
+    }
+
+    // Check for associated user
+    const User = require('../models/user.model');
+    const associatedUser = await User.findOne({ 
+      penumpang_id: passengerId 
+    }).session(session);
+
+    if (associatedUser) {
+      // Option 1: Prevent deletion
+      throw new Error('Cannot delete passenger - associated user account exists');
+      
+      // Option 2: Alternative - remove association (uncomment if preferred)
+      // await User.findByIdAndUpdate(
+      //   associatedUser._id,
+      //   { $unset: { penumpang_id: 1 } },
+      //   { session }
+      // );
+    }
+
+    // Safe to delete passenger
+    await Penumpang.findByIdAndDelete(passengerId).session(session);
+
+    await session.commitTransaction();
+    
+    res.status(200).json({ 
+      message: 'Passenger deleted successfully',
+      deletedPassenger: {
+        id: passenger._id,
+        name: passenger.nama_penumpang,
+        email: passenger.email
+      }
     });
+
+  } catch (error) {
+    await session.abortTransaction();
+    
+    if (error.message === 'Passenger not found') {
+      res.status(404).json({ message: error.message });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
+  } finally {
+    await session.endSession();
+  }
+};
+
+const bulkCreatePassengers = async (req, res) => {
+  const session = await mongoose.startSession();
+  let transactionStarted = false;
+  
+  try {
+    const startTime = Date.now();
+    const passengers = req.body;
+    
+    if (!Array.isArray(passengers) || passengers.length === 0) {
+      return res.status(400).json({ 
+        message: 'Request body must be an array of passengers' 
+      });
+    }
+    
+    // Start transaction
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+    transactionStarted = true;
+    
+    // Validate all passengers before creating any
+    const errors = [];
+    for (let i = 0; i < passengers.length; i++) {
+      const passenger = passengers[i];
+      
+      // Check for required fields
+      if (!passenger.nama_penumpang || !passenger.email || !passenger.nomor_identitas) {
+        errors.push(`Passenger ${i + 1}: Missing required fields (nama_penumpang, email, nomor_identitas)`);
+      }
+      
+      // Check for duplicate emails within the batch
+      const duplicateIndex = passengers.findIndex((p, index) => 
+        index !== i && p.email === passenger.email
+      );
+      if (duplicateIndex !== -1) {
+        errors.push(`Passenger ${i + 1}: Duplicate email with passenger ${duplicateIndex + 1}`);
+      }
+    }
+    
+    if (errors.length > 0) {
+      throw new Error(`Validation failed:\n${errors.join('\n')}`);
+    }
+    
+    // Check for existing emails in database
+    const emails = passengers.map(p => p.email);
+    const existingPassengers = await Penumpang.find({ 
+      email: { $in: emails } 
+    }).session(session);
+    
+    if (existingPassengers.length > 0) {
+      const existingEmails = existingPassengers.map(p => p.email);
+      throw new Error(`Duplicate emails found in database: ${existingEmails.join(', ')}`);
+    }
+    
+    // Create all passengers at once
+    const createdPassengers = await Penumpang.insertMany(passengers, { session });
     
     await session.commitTransaction();
     
@@ -107,22 +186,27 @@ const bulkCreatePassengers = async (req, res) => {
     const processingTime = endTime - startTime;
     
     res.status(201).json({
-      message: `Successfully created ${createdPassengers.length} passengers`,
-      processingTime: `${processingTime} ms`,
+      message: 'Passengers created successfully',
       count: createdPassengers.length,
-      data: createdPassengers
+      passengers: createdPassengers,
+      processingTime: `${processingTime} ms`
     });
 
   } catch (error) {
-    await session.abortTransaction();
+    // Only abort transaction if it was actually started
+    if (transactionStarted) {
+      await session.abortTransaction();
+    }
     
-    // Handle MongoDB duplicate key errors
     if (error.code === 11000) {
       res.status(400).json({ 
-        message: 'Duplicate email address found in passengers data' 
+        message: 'Duplicate entry detected',
+        details: error.message 
       });
     } else {
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ 
+        message: error.message 
+      });
     }
   } finally {
     await session.endSession();

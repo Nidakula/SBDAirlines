@@ -1,4 +1,4 @@
-const { Tiket, Penerbangan, Penumpang } = require('../models/index.model');
+const { Tiket, Penerbangan, Penumpang, Pesawat } = require('../models/index.model');
 const mongoose = require('mongoose');
 
 const getAllTickets = async (req, res) => {
@@ -46,39 +46,41 @@ const createTicket = async (req, res) => {
   const session = await mongoose.startSession();
   
   try {
-    const { flight_id, penumpang_id, seat_number, kelas, harga } = req.body;
+    const { flight_id, penumpang_id, seat_number, kelas_penerbangan, harga_tiket } = req.body;
 
-    // Start transaction
-    await session.startTransaction({
-      readConcern: { level: 'majority' },
-      writeConcern: { w: 'majority', j: true }
-    });
+    // Validate required fields
+    if (!flight_id || !penumpang_id || !seat_number) {
+      return res.status(400).json({ 
+        message: 'flight_id, penumpang_id, and seat_number are required' 
+      });
+    }
 
-    // Validate foreign key references within transaction
+    // Pre-validate without session to avoid conflicts
     const [flight, passenger] = await Promise.all([
-      Penerbangan.findById(flight_id).session(session),
-      Penumpang.findById(penumpang_id).session(session)
+      Penerbangan.findById(flight_id),
+      Penumpang.findById(penumpang_id)
     ]);
 
     if (!flight) {
-      throw new Error('Invalid flight ID - flight not found');
+      return res.status(400).json({ 
+        message: 'Invalid flight ID - flight not found' 
+      });
     }
 
     if (!passenger) {
-      throw new Error('Invalid passenger ID - passenger not found');
-    }    // Check flight capacity and existing tickets
-    const existingTickets = await Tiket.countDocuments({ 
-      flight_id: flight_id 
-    }).session(session);
-
-    // Use flight's capacity or default
-    const flightCapacity = flight.kapasitas || 180;
-    
-    if (existingTickets >= flightCapacity) {
-      throw new Error('Flight is fully booked');
+      return res.status(400).json({ 
+        message: 'Invalid passenger ID - passenger not found' 
+      });
     }
 
-    // Check for duplicate seat assignment
+    // Start transaction with proper isolation
+    await session.startTransaction({
+      readConcern: { level: 'snapshot' },
+      writeConcern: { w: 'majority', j: true },
+      readPreference: 'primary'
+    });
+
+    // Check for duplicate seat assignment within transaction
     const seatTaken = await Tiket.findOne({ 
       flight_id: flight_id, 
       seat_number: seat_number 
@@ -88,21 +90,41 @@ const createTicket = async (req, res) => {
       throw new Error(`Seat ${seat_number} is already taken`);
     }
 
+    // Check flight capacity within transaction
+    const existingTickets = await Tiket.countDocuments({ 
+      flight_id: flight_id 
+    }).session(session);
+
+    // Get aircraft capacity
+    let flightCapacity = 180; // default
+    if (flight.pesawat_id) {
+      const aircraft = await Pesawat.findById(flight.pesawat_id).session(session);
+      if (aircraft && aircraft.kapasitas_penumpang) {
+        flightCapacity = aircraft.kapasitas_penumpang;
+      }
+    }
+    
+    if (existingTickets >= flightCapacity) {
+      throw new Error('Flight is fully booked');
+    }
+
     // Create ticket within transaction
     const newTicket = new Tiket({
       flight_id,
       penumpang_id,
       seat_number,
-      kelas,
-      harga
+      kelas_penerbangan: kelas_penerbangan || 'Ekonomi',
+      harga_tiket: harga_tiket || 0,
+      status_tiket: 'Confirmed'
     });
-      const savedTicket = await newTicket.save({ session });
 
-    // Update flight booking count
-    await Penerbangan.findByIdAndUpdate(
+    const savedTicket = await newTicket.save({ session });
+
+    // Update flight booking count atomically
+    const updatedFlight = await Penerbangan.findByIdAndUpdate(
       flight_id,
       { $inc: { booked_seats: 1 } },
-      { session }
+      { session, new: true }
     );
 
     await session.commitTransaction();
@@ -119,6 +141,10 @@ const createTicket = async (req, res) => {
     if (error.code === 11000) {
       res.status(400).json({ 
         message: 'Duplicate seat assignment - seat already taken' 
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        message: error.message 
       });
     } else {
       res.status(400).json({ message: error.message });

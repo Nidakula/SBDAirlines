@@ -33,8 +33,10 @@ class TransactionValidator {
         hasOrphans: passengersWithoutUsers.length > 0,
         count: passengersWithoutUsers.length,
         orphans: passengersWithoutUsers.map(p => ({
+          _id: p._id, // Include _id for cleanup
           id: p._id,
           email: p.email,
+          nama_penumpang: p.nama_penumpang, // Include full field name
           name: p.nama_penumpang
         }))
       };
@@ -164,6 +166,13 @@ class TransactionValidator {
           $match: {
             flight: { $size: 0 }
           }
+        },
+        {
+          $project: {
+            _id: 1,
+            flight_id: 1,
+            seat_number: 1
+          }
         }
       ]);
 
@@ -181,6 +190,13 @@ class TransactionValidator {
           $match: {
             passenger: { $size: 0 }
           }
+        },
+        {
+          $project: {
+            _id: 1,
+            penumpang_id: 1,
+            seat_number: 1
+          }
         }
       ]);
 
@@ -188,7 +204,12 @@ class TransactionValidator {
         brokenReferences.push({
           type: 'invalid_flight_references',
           count: ticketsWithInvalidFlights.length,
-          tickets: ticketsWithInvalidFlights.map(t => t._id)
+          tickets: ticketsWithInvalidFlights.map(t => t._id),
+          details: ticketsWithInvalidFlights.map(t => ({
+            ticketId: t._id,
+            invalidFlightId: t.flight_id,
+            seatNumber: t.seat_number
+          }))
         });
       }
 
@@ -196,13 +217,18 @@ class TransactionValidator {
         brokenReferences.push({
           type: 'invalid_passenger_references',
           count: ticketsWithInvalidPassengers.length,
-          tickets: ticketsWithInvalidPassengers.map(t => t._id)
+          tickets: ticketsWithInvalidPassengers.map(t => t._id),
+          details: ticketsWithInvalidPassengers.map(t => ({
+            ticketId: t._id,
+            invalidPassengerId: t.penumpang_id,
+            seatNumber: t.seat_number
+          }))
         });
       }
 
       return {
         hasBrokenReferences: brokenReferences.length > 0,
-        count: brokenReferences.length,
+        count: brokenReferences.reduce((sum, ref) => sum + ref.count, 0),
         references: brokenReferences
       };
     } catch (error) {

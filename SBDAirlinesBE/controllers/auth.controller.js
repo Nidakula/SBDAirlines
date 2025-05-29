@@ -8,22 +8,45 @@ const register = async (req, res) => {
   try {
     const { username, email, password, name, nomor_identitas, nomor_telepon, kewarganegaraan, role } = req.body;
 
-    // Check for existing user outside transaction for performance
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
-    });
-
-    if (existingUser) {
+    // Validate required fields first
+    if (!username || !email || !password) {
       return res.status(400).json({ 
-        message: 'User with this email or username already exists' 
+        message: 'Username, email, and password are required' 
       });
     }
 
-    // Start transaction with crash-safe settings
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        message: 'Invalid email format' 
+      });
+    }
+
+    // Start transaction with proper isolation
     await session.startTransaction({
-      readConcern: { level: 'majority' },
-      writeConcern: { w: 'majority', j: true } // j: true ensures journal write for crash safety
+      readConcern: { level: 'snapshot' },
+      writeConcern: { w: 'majority', j: true },
+      readPreference: 'primary'
     });
+
+    // Check for existing user within transaction to ensure consistency
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }] 
+    }).session(session);
+
+    if (existingUser) {
+      throw new Error(existingUser.email === email ? 
+        'User with this email already exists' : 
+        'User with this username already exists'
+      );
+    }
+
+    // Check for existing passenger with same email within transaction
+    const existingPassenger = await Penumpang.findOne({ email }).session(session);
+    if (existingPassenger) {
+      throw new Error('Passenger with this email already exists');
+    }
 
     const passengerName = name || username;
     const nationality = kewarganegaraan || 'Not Specified';
@@ -71,9 +94,24 @@ const register = async (req, res) => {
 
   } catch (error) {
     console.error("Registration error:", error);
-    // Automatic rollback on any failure (including system crash)
+    // Automatic rollback on any failure
     await session.abortTransaction();
-    res.status(500).json({ message: error.message });
+    
+    // Handle specific MongoDB errors
+    if (error.code === 11000) {
+      const field = error.keyPattern?.email ? 'email' : 'username';
+      res.status(400).json({ 
+        message: `User with this ${field} already exists` 
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        message: error.message 
+      });
+    } else {
+      res.status(400).json({ 
+        message: error.message
+      });
+    }
   } finally {
     await session.endSession();
   }

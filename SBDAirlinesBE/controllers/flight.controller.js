@@ -36,41 +36,49 @@ const createFlight = async (req, res) => {
   try {
     const { maskapai_id, pesawat_id, gate_id, asal_bandara, tujuan_bandara, jadwal_keberangkatan, jadwal_kedatangan, status_penerbangan } = req.body;
 
-    // Start transaction
-    await session.startTransaction({
-      readConcern: { level: 'majority' },
-      writeConcern: { w: 'majority', j: true }
-    });
-
-    // Validate all foreign key references within transaction
+    // Pre-validate references outside transaction to avoid session conflicts
     const [airline, aircraft, gate] = await Promise.all([
-      Maskapai.findById(maskapai_id).session(session),
-      Pesawat.findById(pesawat_id).session(session),
-      Gate.findById(gate_id).session(session)
+      Maskapai.findById(maskapai_id),
+      Pesawat.findById(pesawat_id),
+      Gate.findById(gate_id)
     ]);
 
     if (!airline) {
-      throw new Error('Invalid airline ID - airline not found');
+      return res.status(400).json({ 
+        message: 'Invalid airline ID - airline not found' 
+      });
     }
 
     if (!aircraft) {
-      throw new Error('Invalid aircraft ID - aircraft not found');
+      return res.status(400).json({ 
+        message: 'Invalid aircraft ID - aircraft not found' 
+      });
     }
 
     if (!gate) {
-      throw new Error('Invalid gate ID - gate not found');
+      return res.status(400).json({ 
+        message: 'Invalid gate ID - gate not found' 
+      });
     }
 
-    // Check for conflicting flight schedules (same aircraft or gate at overlapping times)
+    // Validate time logic
     const departureTime = new Date(jadwal_keberangkatan);
     const arrivalTime = new Date(jadwal_kedatangan);
 
-    // Validate time logic
     if (arrivalTime <= departureTime) {
-      throw new Error('Arrival time must be after departure time');
+      return res.status(400).json({ 
+        message: 'Arrival time must be after departure time' 
+      });
     }
 
-    // Check for aircraft conflicts
+    // Start transaction with proper isolation
+    await session.startTransaction({
+      readConcern: { level: 'snapshot' },
+      writeConcern: { w: 'majority', j: true },
+      readPreference: 'primary'
+    });
+
+    // Check for aircraft conflicts within transaction
     const aircraftConflict = await Penerbangan.findOne({
       pesawat_id: pesawat_id,
       $or: [
@@ -85,7 +93,7 @@ const createFlight = async (req, res) => {
       throw new Error('Aircraft is already scheduled for another flight during this time period');
     }
 
-    // Check for gate conflicts
+    // Check for gate conflicts within transaction
     const gateConflict = await Penerbangan.findOne({
       gate_id: gate_id,
       $or: [
@@ -109,7 +117,8 @@ const createFlight = async (req, res) => {
       tujuan_bandara,
       jadwal_keberangkatan: departureTime,
       jadwal_kedatangan: arrivalTime,
-      status_penerbangan: status_penerbangan || 'On Time'
+      status_penerbangan: status_penerbangan || 'On Time',
+      booked_seats: 0 // Initialize booking count
     });
 
     const savedFlight = await newFlight.save({ session });

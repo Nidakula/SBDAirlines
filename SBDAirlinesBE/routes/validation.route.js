@@ -50,4 +50,56 @@ router.get('/duplicate-seats', async (req, res) => {
   }
 });
 
+// Add new endpoints for testing rollback scenarios
+router.get('/broken-references', async (req, res) => {
+  try {
+    const result = await TransactionValidator.checkBrokenReferences();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/incomplete-users', async (req, res) => {
+  try {
+    const result = await TransactionValidator.checkUsersWithoutPassengers();
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Test endpoint to simulate transaction failures
+router.post('/test-rollback', async (req, res) => {
+  try {
+    const { testType } = req.body;
+    
+    switch (testType) {
+      case 'user-registration':
+        // Simulate a user registration failure
+        res.status(400).json({
+          message: 'Simulated registration failure for testing',
+          testType: 'user-registration'
+        });
+        break;
+        
+      case 'ticket-creation':
+        // Simulate a ticket creation failure
+        res.status(400).json({
+          message: 'Simulated ticket creation failure for testing',
+          testType: 'ticket-creation'
+        });
+        break;
+        
+      default:
+        res.status(400).json({
+          message: 'Invalid test type',
+          supportedTypes: ['user-registration', 'ticket-creation']
+        });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
