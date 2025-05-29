@@ -36,7 +36,6 @@ const createFlight = async (req, res) => {
   try {
     const { maskapai_id, pesawat_id, gate_id, asal_bandara, tujuan_bandara, jadwal_keberangkatan, jadwal_kedatangan, status_penerbangan } = req.body;
 
-    // Pre-validate references outside transaction to avoid session conflicts
     const [airline, aircraft, gate] = await Promise.all([
       Maskapai.findById(maskapai_id),
       Pesawat.findById(pesawat_id),
@@ -61,7 +60,6 @@ const createFlight = async (req, res) => {
       });
     }
 
-    // Validate time logic
     const departureTime = new Date(jadwal_keberangkatan);
     const arrivalTime = new Date(jadwal_kedatangan);
 
@@ -71,14 +69,12 @@ const createFlight = async (req, res) => {
       });
     }
 
-    // Start transaction with proper isolation
     await session.startTransaction({
       readConcern: { level: 'snapshot' },
       writeConcern: { w: 'majority', j: true },
       readPreference: 'primary'
     });
 
-    // Check for aircraft conflicts within transaction
     const aircraftConflict = await Penerbangan.findOne({
       pesawat_id: pesawat_id,
       $or: [
@@ -93,7 +89,6 @@ const createFlight = async (req, res) => {
       throw new Error('Aircraft is already scheduled for another flight during this time period');
     }
 
-    // Check for gate conflicts within transaction
     const gateConflict = await Penerbangan.findOne({
       gate_id: gate_id,
       $or: [
@@ -108,7 +103,6 @@ const createFlight = async (req, res) => {
       throw new Error('Gate is already occupied during this time period');
     }
 
-    // Create flight within transaction
     const newFlight = new Penerbangan({
       maskapai_id,
       pesawat_id,
@@ -118,7 +112,7 @@ const createFlight = async (req, res) => {
       jadwal_keberangkatan: departureTime,
       jadwal_kedatangan: arrivalTime,
       status_penerbangan: status_penerbangan || 'On Time',
-      booked_seats: 0 // Initialize booking count
+      booked_seats: 0
     });
 
     const savedFlight = await newFlight.save({ session });

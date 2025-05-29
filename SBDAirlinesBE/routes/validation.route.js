@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const TransactionValidator = require('../utils/transactionValidator');
 
-// Health check endpoint for database consistency
 router.get('/health', async (req, res) => {
   try {
     const validationResults = await TransactionValidator.runFullValidation();
@@ -22,7 +21,6 @@ router.get('/health', async (req, res) => {
   }
 });
 
-// Specific validation endpoints
 router.get('/orphaned-passengers', async (req, res) => {
   try {
     const result = await TransactionValidator.checkOrphanedPassengers();
@@ -50,7 +48,6 @@ router.get('/duplicate-seats', async (req, res) => {
   }
 });
 
-// Add new endpoints for testing rollback scenarios
 router.get('/broken-references', async (req, res) => {
   try {
     const result = await TransactionValidator.checkBrokenReferences();
@@ -69,14 +66,12 @@ router.get('/incomplete-users', async (req, res) => {
   }
 });
 
-// Test endpoint to simulate transaction failures
 router.post('/test-rollback', async (req, res) => {
   try {
     const { testType } = req.body;
     
     switch (testType) {
       case 'user-registration':
-        // Simulate a user registration failure
         res.status(400).json({
           message: 'Simulated registration failure for testing',
           testType: 'user-registration'
@@ -84,7 +79,6 @@ router.post('/test-rollback', async (req, res) => {
         break;
         
       case 'ticket-creation':
-        // Simulate a ticket creation failure
         res.status(400).json({
           message: 'Simulated ticket creation failure for testing',
           testType: 'ticket-creation'

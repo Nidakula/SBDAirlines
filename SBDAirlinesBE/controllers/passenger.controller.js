@@ -61,13 +61,11 @@ const deletePassenger = async (req, res) => {
 
     const passengerId = req.params.id;
     
-    // Check if passenger exists
     const passenger = await Penumpang.findById(passengerId).session(session);
     if (!passenger) {
       throw new Error('Passenger not found');
     }
 
-    // Check for existing tickets - prevent deletion if tickets exist
     const { Tiket } = require('../models/index.model');
     const existingTickets = await Tiket.countDocuments({ 
       penumpang_id: passengerId 
@@ -77,25 +75,15 @@ const deletePassenger = async (req, res) => {
       throw new Error(`Cannot delete passenger - ${existingTickets} ticket(s) exist for this passenger`);
     }
 
-    // Check for associated user
     const User = require('../models/user.model');
     const associatedUser = await User.findOne({ 
       penumpang_id: passengerId 
     }).session(session);
 
     if (associatedUser) {
-      // Option 1: Prevent deletion
       throw new Error('Cannot delete passenger - associated user account exists');
-      
-      // Option 2: Alternative - remove association (uncomment if preferred)
-      // await User.findByIdAndUpdate(
-      //   associatedUser._id,
-      //   { $unset: { penumpang_id: 1 } },
-      //   { session }
-      // );
     }
 
-    // Safe to delete passenger
     await Penumpang.findByIdAndDelete(passengerId).session(session);
 
     await session.commitTransaction();
@@ -136,24 +124,20 @@ const bulkCreatePassengers = async (req, res) => {
       });
     }
     
-    // Start transaction
     await session.startTransaction({
       readConcern: { level: 'majority' },
       writeConcern: { w: 'majority', j: true }
     });
     transactionStarted = true;
     
-    // Validate all passengers before creating any
     const errors = [];
     for (let i = 0; i < passengers.length; i++) {
       const passenger = passengers[i];
       
-      // Check for required fields
       if (!passenger.nama_penumpang || !passenger.email || !passenger.nomor_identitas) {
         errors.push(`Passenger ${i + 1}: Missing required fields (nama_penumpang, email, nomor_identitas)`);
       }
       
-      // Check for duplicate emails within the batch
       const duplicateIndex = passengers.findIndex((p, index) => 
         index !== i && p.email === passenger.email
       );
@@ -166,7 +150,6 @@ const bulkCreatePassengers = async (req, res) => {
       throw new Error(`Validation failed:\n${errors.join('\n')}`);
     }
     
-    // Check for existing emails in database
     const emails = passengers.map(p => p.email);
     const existingPassengers = await Penumpang.find({ 
       email: { $in: emails } 
@@ -177,7 +160,6 @@ const bulkCreatePassengers = async (req, res) => {
       throw new Error(`Duplicate emails found in database: ${existingEmails.join(', ')}`);
     }
     
-    // Create all passengers at once
     const createdPassengers = await Penumpang.insertMany(passengers, { session });
     
     await session.commitTransaction();
@@ -193,7 +175,6 @@ const bulkCreatePassengers = async (req, res) => {
     });
 
   } catch (error) {
-    // Only abort transaction if it was actually started
     if (transactionStarted) {
       await session.abortTransaction();
     }

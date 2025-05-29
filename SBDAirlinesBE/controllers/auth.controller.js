@@ -8,14 +8,12 @@ const register = async (req, res) => {
   try {
     const { username, email, password, name, nomor_identitas, nomor_telepon, kewarganegaraan, role } = req.body;
 
-    // Validate required fields first
     if (!username || !email || !password) {
       return res.status(400).json({ 
         message: 'Username, email, and password are required' 
       });
     }
 
-    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ 
@@ -23,14 +21,12 @@ const register = async (req, res) => {
       });
     }
 
-    // Start transaction with proper isolation
     await session.startTransaction({
       readConcern: { level: 'snapshot' },
       writeConcern: { w: 'majority', j: true },
       readPreference: 'primary'
     });
 
-    // Check for existing user within transaction to ensure consistency
     const existingUser = await User.findOne({ 
       $or: [{ email }, { username }] 
     }).session(session);
@@ -42,7 +38,6 @@ const register = async (req, res) => {
       );
     }
 
-    // Check for existing passenger with same email within transaction
     const existingPassenger = await Penumpang.findOne({ email }).session(session);
     if (existingPassenger) {
       throw new Error('Passenger with this email already exists');
@@ -51,7 +46,6 @@ const register = async (req, res) => {
     const passengerName = name || username;
     const nationality = kewarganegaraan || 'Not Specified';
     
-    // Create passenger within transaction
     const newPassenger = new Penumpang({
       nama_penumpang: passengerName,
       nomor_identitas: nomor_identitas || '',
@@ -63,7 +57,6 @@ const register = async (req, res) => {
     const savedPassenger = await newPassenger.save({ session });
     console.log("Passenger created successfully:", savedPassenger._id);
     
-    // Create user within transaction
     const userRole = !role || role === 'passenger' ? 'passenger' : 'admin';
     const newUser = new User({
       username,
@@ -76,7 +69,6 @@ const register = async (req, res) => {
     const savedUser = await newUser.save({ session });
     console.log("User created successfully:", savedUser._id);
     
-    // Commit transaction - atomic operation
     await session.commitTransaction();
     
     const userResponse = {
@@ -94,10 +86,8 @@ const register = async (req, res) => {
 
   } catch (error) {
     console.error("Registration error:", error);
-    // Automatic rollback on any failure
     await session.abortTransaction();
     
-    // Handle specific MongoDB errors
     if (error.code === 11000) {
       const field = error.keyPattern?.email ? 'email' : 'username';
       res.status(400).json({ 
@@ -177,7 +167,6 @@ const createPassengerForUser = async (req, res) => {
       });
     }
 
-    // Start transaction
     await session.startTransaction({
       readConcern: { level: 'majority' },
       writeConcern: { w: 'majority', j: true }
@@ -196,7 +185,6 @@ const createPassengerForUser = async (req, res) => {
 
     const savedPassenger = await newPassenger.save({ session });
 
-    // Update user with passenger ID within transaction
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { penumpang_id: savedPassenger._id },
@@ -232,7 +220,6 @@ const migrateUsers = async (req, res) => {
   const session = await mongoose.startSession();
   
   try {
-    // Find users without passenger IDs
     const users = await User.find({
       $or: [
         { penumpang_id: { $exists: false } },
@@ -253,7 +240,6 @@ const migrateUsers = async (req, res) => {
 
     const results = [];
 
-    // Process users in batches to avoid memory issues
     for (const user of users) {
       const newPassenger = new Penumpang({
         nama_penumpang: user.username,

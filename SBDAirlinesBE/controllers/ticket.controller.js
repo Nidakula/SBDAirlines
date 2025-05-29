@@ -48,14 +48,12 @@ const createTicket = async (req, res) => {
   try {
     const { flight_id, penumpang_id, seat_number, kelas_penerbangan, harga_tiket } = req.body;
 
-    // Validate required fields
     if (!flight_id || !penumpang_id || !seat_number) {
       return res.status(400).json({ 
         message: 'flight_id, penumpang_id, and seat_number are required' 
       });
     }
 
-    // Pre-validate without session to avoid conflicts
     const [flight, passenger] = await Promise.all([
       Penerbangan.findById(flight_id),
       Penumpang.findById(penumpang_id)
@@ -73,14 +71,12 @@ const createTicket = async (req, res) => {
       });
     }
 
-    // Start transaction with proper isolation
     await session.startTransaction({
       readConcern: { level: 'snapshot' },
       writeConcern: { w: 'majority', j: true },
       readPreference: 'primary'
     });
 
-    // Check for duplicate seat assignment within transaction
     const seatTaken = await Tiket.findOne({ 
       flight_id: flight_id, 
       seat_number: seat_number 
@@ -90,13 +86,11 @@ const createTicket = async (req, res) => {
       throw new Error(`Seat ${seat_number} is already taken`);
     }
 
-    // Check flight capacity within transaction
     const existingTickets = await Tiket.countDocuments({ 
       flight_id: flight_id 
     }).session(session);
 
-    // Get aircraft capacity
-    let flightCapacity = 180; // default
+    let flightCapacity = 180;
     if (flight.pesawat_id) {
       const aircraft = await Pesawat.findById(flight.pesawat_id).session(session);
       if (aircraft && aircraft.kapasitas_penumpang) {
@@ -108,7 +102,6 @@ const createTicket = async (req, res) => {
       throw new Error('Flight is fully booked');
     }
 
-    // Create ticket within transaction
     const newTicket = new Tiket({
       flight_id,
       penumpang_id,
@@ -120,7 +113,6 @@ const createTicket = async (req, res) => {
 
     const savedTicket = await newTicket.save({ session });
 
-    // Update flight booking count atomically
     const updatedFlight = await Penerbangan.findByIdAndUpdate(
       flight_id,
       { $inc: { booked_seats: 1 } },
@@ -137,7 +129,6 @@ const createTicket = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     
-    // Handle specific MongoDB errors
     if (error.code === 11000) {
       res.status(400).json({ 
         message: 'Duplicate seat assignment - seat already taken' 
@@ -187,10 +178,8 @@ const deleteTicket = async (req, res) => {
       throw new Error('Ticket not found');
     }
 
-    // Delete the ticket
     await Tiket.findByIdAndDelete(req.params.id).session(session);
 
-    // Decrement flight booking count
     await Penerbangan.findByIdAndUpdate(
       ticket.flight_id,
       { $inc: { booked_seats: -1 } },

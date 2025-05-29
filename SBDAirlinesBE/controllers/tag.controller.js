@@ -19,7 +19,6 @@ const createTag = async (req, res) => {
   try {
     const { name, color, user_id } = req.body;
     
-    // Validate required fields
     if (!name || !user_id) {
       return res.status(400).json({
         success: false,
@@ -27,7 +26,6 @@ const createTag = async (req, res) => {
       });
     }
     
-    // Check if tag with same name already exists for this user
     const existingTag = await Tag.findOne({ name, user_id });
     if (existingTag) {
       return res.status(400).json({
@@ -59,7 +57,6 @@ const updateTag = async (req, res) => {
   try {
     const { name, color } = req.body;
     
-    // Find the tag
     const tag = await Tag.findById(req.params.id);
     if (!tag) {
       return res.status(404).json({
@@ -68,7 +65,6 @@ const updateTag = async (req, res) => {
       });
     }
     
-    // Check if another tag with the new name already exists for this user
     if (name && name !== tag.name) {
       const existingTag = await Tag.findOne({ 
         name, 
@@ -106,7 +102,6 @@ const deleteTag = async (req, res) => {
   try {
     const tagId = req.params.id;
     
-    // Find tag
     const tag = await Tag.findById(tagId);
     if (!tag) {
       return res.status(404).json({
@@ -115,13 +110,11 @@ const deleteTag = async (req, res) => {
       });
     }
     
-    // Remove this tag from all notes that use it
     await Note.updateMany(
       { tags: tagId },
       { $pull: { tags: tagId } }
     );
     
-    // Delete the tag
     await Tag.findByIdAndDelete(tagId);
     
     res.status(200).json({

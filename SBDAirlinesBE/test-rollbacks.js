@@ -5,8 +5,6 @@ require('dotenv').config();
 const TransactionValidator = require('./utils/transactionValidator');
 const API_URL = 'http://localhost:3000/api';
 
-// Remove direct database model imports to avoid session conflicts
-// Only connect to MongoDB for the TransactionValidator
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('Connected to MongoDB for rollback testing'))
   .catch(err => {
@@ -19,7 +17,6 @@ class RollbackTester {
     console.log('🧹 Cleaning up any existing test data...');
     
     try {
-      // Use API endpoints to clean up test data to avoid session conflicts
       const [passengersResponse, ticketsResponse, flightsResponse, aircraftResponse] = await Promise.all([
         axios.get(`${API_URL}/passengers`),
         axios.get(`${API_URL}/tickets`),
@@ -27,7 +24,6 @@ class RollbackTester {
         axios.get(`${API_URL}/aircraft`)
       ]);
       
-      // Clean up test tickets first (to avoid foreign key constraints)
       const testTickets = ticketsResponse.data.filter(ticket => 
         ticket.seat_number?.startsWith('ROLLBACK') || ticket.seat_number?.startsWith('TEST')
       );
@@ -36,11 +32,9 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/tickets/${ticket._id}`);
         } catch (error) {
-          // Ignore errors during cleanup
         }
       }
       
-      // Clean up test flights with broader criteria
       const testFlights = flightsResponse.data.filter(flight =>
         flight.asal_bandara?.includes('Test Origin') || 
         flight.tujuan_bandara?.includes('Test Destination') ||
@@ -52,11 +46,9 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/flights/${flight._id}`);
         } catch (error) {
-          // Ignore errors during cleanup
         }
       }
       
-      // Clean up test passengers - be more selective to avoid disrupting seeded data
       const testPassengers = passengersResponse.data.filter(passenger =>
         passenger.email?.includes('rollback.com') ||
         passenger.email?.includes('bulktest') ||
@@ -68,11 +60,9 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/passengers/${passenger._id}`);
         } catch (error) {
-          // Ignore errors during cleanup
         }
       }
       
-      // Clean up test aircraft
       const testAircraft = aircraftResponse.data.filter(aircraft =>
         aircraft.nomor_registrasi?.startsWith('BULK-TEST') ||
         aircraft.nomor_registrasi?.startsWith('REG-')
@@ -82,7 +72,6 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/aircraft/${aircraft._id}`);
         } catch (error) {
-          // Ignore errors during cleanup
         }
       }
       
@@ -95,35 +84,31 @@ class RollbackTester {
   static async testAuthenticationRollbacks() {
     console.log('\n=== Testing Authentication Rollbacks ===');
     
-    // Test 1: Registration with existing email should not create orphaned records
     console.log('\n1. Testing registration rollback with duplicate email...');
     
-    // Get initial counts via API
     const initialPassengersResponse = await axios.get(`${API_URL}/passengers`);
     const initialPassengerCount = initialPassengersResponse.data.length;
     
     let firstRegistrationSucceeded = false;
     
     try {
-      // First registration should succeed - include all required fields
       const firstRegistrationResponse = await axios.post(`${API_URL}/auth/register`, {
         username: 'testrollback1',
         email: 'duplicate@test.com',
         password: 'password123',
-        name: 'Test User 1', // Changed from nama_penumpang to name
+        name: 'Test User 1', 
         nomor_identitas: '9999999999999901',
         nomor_telepon: '+6289999999901',
         kewarganegaraan: 'Indonesia',
-        alamat: 'Test Address 1' // Added alamat field
+        alamat: 'Test Address 1' 
       });
       
       firstRegistrationSucceeded = true;
       console.log('✅ First registration succeeded as expected');
       
-      // Try to register again with same email - this should fail
       await axios.post(`${API_URL}/auth/register`, {
         username: 'testrollback2',
-        email: 'duplicate@test.com', // Same email
+        email: 'duplicate@test.com', 
         password: 'password456',
         name: 'Test User 2',
         nomor_identitas: '9999999999999902',
@@ -135,7 +120,6 @@ class RollbackTester {
       console.log('❌ Expected duplicate registration to fail');
     } catch (error) {
       if (firstRegistrationSucceeded) {
-        // Check final counts - should only have increased by 1 (first registration)
         const finalPassengersResponse = await axios.get(`${API_URL}/passengers`);
         const finalPassengerCount = finalPassengersResponse.data.length;
         
@@ -148,17 +132,14 @@ class RollbackTester {
         console.log('❌ First registration failed unexpectedly');
         console.log('Error details:', error.response?.data?.message || error.message);
         
-        // If first registration fails, try a simpler approach for testing
         console.log('Attempting simplified registration test...');
         try {
-          // Try minimal registration that might work
           await axios.post(`${API_URL}/auth/register`, {
             username: 'simpletest1',
             email: 'simple@test.com',
             password: 'password123'
           });
           
-          // Try duplicate
           await axios.post(`${API_URL}/auth/register`, {
             username: 'simpletest2',
             email: 'simple@test.com',
@@ -172,7 +153,6 @@ class RollbackTester {
       }
     }
     
-    // Test 2: Registration with invalid data should not create partial records
     console.log('\n2. Testing registration rollback with invalid data...');
     
     const beforeInvalidResponse = await axios.get(`${API_URL}/passengers`);
@@ -180,8 +160,8 @@ class RollbackTester {
     
     try {
       await axios.post(`${API_URL}/auth/register`, {
-        username: '', // Invalid empty username
-        email: 'invalid-email-format', // Invalid email
+        username: '', 
+        email: 'invalid-email-format', 
         password: 'test'
       });
       
@@ -210,9 +190,8 @@ class RollbackTester {
       let flights = flightsResponse.data;
       let passengers = passengersResponse.data;
       
-      // Use existing seeded data if available, filter out bulk test passengers
       const seedPassengers = passengers.filter(p => 
-        !p.email?.startsWith('passenger') && // Filter out bulk test passengers
+        !p.email?.startsWith('passenger') && 
         !p.email?.includes('rollback.com') &&
         !p.nama_penumpang?.startsWith('Bulk Test')
       );
@@ -220,7 +199,6 @@ class RollbackTester {
       if (seedPassengers.length >= 2) {
         passengers = seedPassengers;
       } else {
-        // Create test passengers only if needed
         console.log('Creating minimal test passengers...');
         
         const testPassenger1Response = await axios.post(`${API_URL}/passengers`, {
@@ -252,14 +230,11 @@ class RollbackTester {
       const passenger1 = passengers[0];
       const passenger2 = passengers[1];
       
-      // Test 1: Duplicate seat booking should rollback and not increment booked_seats
       console.log('\n1. Testing ticket rollback with duplicate seat...');
       
-      // Get initial booking count
       const initialFlightResponse = await axios.get(`${API_URL}/flights/${flight._id}`);
       const initialBookedSeats = initialFlightResponse.data.booked_seats || 0;
       
-      // Create first ticket with correct field names
       let firstTicket;
       try {
         firstTicket = await axios.post(`${API_URL}/tickets`, {
@@ -276,21 +251,19 @@ class RollbackTester {
         return;
       }
       
-      // Try to create duplicate seat
       try {
         await axios.post(`${API_URL}/tickets`, {
           flight_id: flight._id,
           penumpang_id: passenger2._id,
-          seat_number: 'ROLLBACK1A', // Same seat
+          seat_number: 'ROLLBACK1A', 
           kelas_penerbangan: 'Ekonomi',
           harga_tiket: 1000000
         });
         
         console.log('❌ Expected duplicate seat booking to fail');
       } catch (error) {
-        // Check flight booking count
         const updatedFlightResponse = await axios.get(`${API_URL}/flights/${flight._id}`);
-        const expectedBookedSeats = initialBookedSeats + 1; // Only first ticket should count
+        const expectedBookedSeats = initialBookedSeats + 1; 
         
         if (updatedFlightResponse.data.booked_seats === expectedBookedSeats) {
           console.log('✅ Duplicate seat rollback successful - booking count correct');
@@ -299,7 +272,6 @@ class RollbackTester {
         }
       }
       
-      // Clean up test ticket
       if (firstTicket) {
         try {
           await axios.delete(`${API_URL}/tickets/${firstTicket.data.ticket._id}`);
@@ -309,7 +281,6 @@ class RollbackTester {
         }
       }
       
-      // Test 2: Invalid flight ID should not create ticket or modify flight
       console.log('\n2. Testing ticket rollback with invalid flight ID...');
       
       const initialTicketsResponse = await axios.get(`${API_URL}/tickets`);
@@ -317,7 +288,7 @@ class RollbackTester {
       
       try {
         await axios.post(`${API_URL}/tickets`, {
-          flight_id: '507f1f77bcf86cd799439011', // Non-existent flight
+          flight_id: '507f1f77bcf86cd799439011', 
           penumpang_id: passenger1._id,
           seat_number: 'B1',
           kelas_penerbangan: 'Ekonomi',
@@ -360,21 +331,17 @@ class RollbackTester {
         return;
       }
       
-      // Test 1: Aircraft conflict should rollback
       console.log('\n1. Testing flight rollback with aircraft conflict...');
       
-      // Use far future times to avoid conflicts with existing flights
-      const baseTime = new Date(Date.now() + 86400000); // Tomorrow
-      const departureTime1 = new Date(baseTime.getTime() + 3600000); // +1 hour
-      const arrivalTime1 = new Date(baseTime.getTime() + 7200000); // +2 hours
-      const departureTime2 = new Date(baseTime.getTime() + 5400000); // +1.5 hours (overlaps)
-      const arrivalTime2 = new Date(baseTime.getTime() + 9000000); // +2.5 hours
+      const baseTime = new Date(Date.now() + 86400000); 
+      const departureTime1 = new Date(baseTime.getTime() + 3600000); 
+      const arrivalTime1 = new Date(baseTime.getTime() + 7200000); 
+      const departureTime2 = new Date(baseTime.getTime() + 5400000); 
+      const arrivalTime2 = new Date(baseTime.getTime() + 9000000); 
       
-      // Find available aircraft and gate that don't have conflicts
       let availableAircraft = aircraft[0];
       let availableGate = gates[0];
       
-      // Simple check for available gate (use gate that's not in current flight)
       const currentFlights = await axios.get(`${API_URL}/flights`);
       const usedGates = currentFlights.data.map(f => f.gate_id?._id || f.gate_id);
       const freeGate = gates.find(g => !usedGates.includes(g._id));
@@ -382,7 +349,6 @@ class RollbackTester {
         availableGate = freeGate;
       }
       
-      // Create first flight
       let firstFlight;
       try {
         firstFlight = await axios.post(`${API_URL}/flights`, {
@@ -402,12 +368,11 @@ class RollbackTester {
         return;
       }
       
-      // Try to create conflicting flight (same aircraft, overlapping time)
       try {
         await axios.post(`${API_URL}/flights`, {
           maskapai_id: airlines[0]._id,
-          pesawat_id: availableAircraft._id, // Same aircraft
-          gate_id: gates[1]._id, // Different gate
+          pesawat_id: availableAircraft._id, 
+          gate_id: gates[1]._id, 
           asal_bandara: 'Test Origin Rollback B',
           tujuan_bandara: 'Test Destination Rollback B',
           jadwal_keberangkatan: departureTime2,
@@ -420,7 +385,6 @@ class RollbackTester {
         console.log('✅ Aircraft conflict rollback successful');
       }
       
-      // Clean up test flight
       if (firstFlight) {
         try {
           await axios.delete(`${API_URL}/flights/${firstFlight.data.flight._id}`);
@@ -430,7 +394,6 @@ class RollbackTester {
         }
       }
       
-      // Test 2: Invalid time sequence should rollback
       console.log('\n2. Testing flight rollback with invalid time sequence...');
       
       const initialFlightsResponse = await axios.get(`${API_URL}/flights`);
@@ -443,8 +406,8 @@ class RollbackTester {
           gate_id: availableGate._id,
           asal_bandara: 'Test Origin Invalid',
           tujuan_bandara: 'Test Destination Invalid',
-          jadwal_keberangkatan: arrivalTime1, // Later time
-          jadwal_kedatangan: departureTime1, // Earlier time (invalid)
+          jadwal_keberangkatan: arrivalTime1, 
+          jadwal_kedatangan: departureTime1, 
           status_penerbangan: 'On Time'
         });
         
@@ -468,7 +431,6 @@ class RollbackTester {
   static async testBulkOperationRollbacks() {
     console.log('\n=== Testing Bulk Operation Rollbacks ===');
     
-    // Test 1: Bulk passenger creation with one invalid record should rollback all
     console.log('\n1. Testing bulk passenger rollback...');
     
     const initialPassengersResponse = await axios.get(`${API_URL}/passengers`);
@@ -489,7 +451,7 @@ class RollbackTester {
         nomor_passport: 'BT002',
         nomor_identitas: '2222222222222222',
         nomor_telepon: '+6282222222222',
-        email: 'bulktest1@rollback.com', // Duplicate email within batch
+        email: 'bulktest1@rollback.com', 
         alamat: 'Test Address 2',
         kewarganegaraan: 'Indonesia'
       }
@@ -509,7 +471,6 @@ class RollbackTester {
       }
     }
     
-    // Test 2: Bulk aircraft creation with invalid airline ID should rollback all
     console.log('\n2. Testing bulk aircraft rollback...');
     
     const airlinesResponse = await axios.get(`${API_URL}/airlines`);
@@ -530,7 +491,7 @@ class RollbackTester {
         status_pesawat: 'Aktif'
       },
       {
-        maskapai_id: '507f1f77bcf86cd799439011', // Invalid airline ID
+        maskapai_id: '507f1f77bcf86cd799439011', 
         model_pesawat: 'Bulk Test Aircraft 2',
         kapasitas_penumpang: 180,
         nomor_registrasi: 'BULK-TEST-002',
@@ -557,7 +518,6 @@ class RollbackTester {
     console.log('\n=== Final Database Consistency Check ===');
     
     try {
-      // Wait a moment for any pending operations to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       const validationResponse = await axios.get(`${API_URL}/validation/health`);
@@ -581,7 +541,6 @@ class RollbackTester {
         console.log('\n⚠️  Database consistency issues detected after rollback tests');
         console.log('ℹ️   Note: Orphaned passengers may be from previous bulk testing operations');
         if (validation.details) {
-          // Only show first few items to avoid overwhelming output
           console.log('Sample Details:');
           if (validation.details.orphanedPassengers?.orphans) {
             const orphans = validation.details.orphanedPassengers.orphans.slice(0, 3);
@@ -601,7 +560,6 @@ class RollbackTester {
     console.log('🧹 Cleaning up orphaned passengers from bulk operations...');
     
     try {
-      // Get validation data to identify orphaned passengers
       const validationResponse = await axios.get(`${API_URL}/validation/health`);
       const validation = validationResponse.data;
       
@@ -612,28 +570,25 @@ class RollbackTester {
         let cleanedCount = 0;
         let skippedCount = 0;
         
-        // Clean up orphaned passengers in batches to avoid overwhelming the API
         for (let i = 0; i < orphans.length; i += 10) {
           const batch = orphans.slice(i, i + 10);
           
           for (const orphan of batch) {
             try {
-              // Check if orphan has valid ID
               if (!orphan._id) {
                 console.log(`Skipping orphan without ID: ${orphan.email || 'unknown email'}`);
                 skippedCount++;
                 continue;
               }
               
-              // Check if this is likely a bulk test passenger
               const isBulkTestPassenger = 
-                orphan.email?.startsWith('passenger') || // bulk test pattern
+                orphan.email?.startsWith('passenger') || 
                 orphan.email?.includes('example.com') ||
                 orphan.nama_penumpang?.startsWith('Passenger ') ||
-                orphan.nomor_passport?.startsWith('P2') || // bulk test pattern
-                orphan.nomor_identitas?.startsWith('200') || // bulk test pattern
-                orphan.nomor_identitas?.startsWith('100') || // another bulk test pattern
-                orphan.nomor_telepon?.includes('123456'); // bulk test pattern
+                orphan.nomor_passport?.startsWith('P2') || 
+                orphan.nomor_identitas?.startsWith('200') || 
+                orphan.nomor_identitas?.startsWith('100') || 
+                orphan.nomor_telepon?.includes('123456'); 
               
               if (isBulkTestPassenger) {
                 await axios.delete(`${API_URL}/passengers/${orphan._id}`);
@@ -647,13 +602,11 @@ class RollbackTester {
                 console.log(`Keeping passenger: ${orphan.email} (doesn't match bulk test patterns)`);
               }
             } catch (error) {
-              // Continue with next passenger if one fails
               console.log(`Failed to delete passenger ${orphan._id || 'unknown'}: ${error.response?.data?.message || error.message}`);
               skippedCount++;
             }
           }
           
-          // Small delay between batches to avoid overwhelming the server
           if (i + 10 < orphans.length) {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
@@ -676,14 +629,12 @@ class RollbackTester {
     console.log('🧹 Performing comprehensive cleanup of bulk test data...');
     
     try {
-      // Get all data first
       const [passengersResponse, aircraftResponse, ticketsResponse] = await Promise.all([
         axios.get(`${API_URL}/passengers`),
         axios.get(`${API_URL}/aircraft`),
         axios.get(`${API_URL}/tickets`)
       ]);
       
-      // Clean up bulk test tickets first
       const bulkTestTickets = ticketsResponse.data.filter(ticket =>
         ticket.seat_number?.match(/^(ROLLBACK|TEST|BULK)/) ||
         ticket.kelas_penerbangan === 'Test'
@@ -694,11 +645,9 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/tickets/${ticket._id}`);
         } catch (error) {
-          // Continue with next ticket
         }
       }
       
-      // Clean up bulk test aircraft
       const bulkTestAircraft = aircraftResponse.data.filter(aircraft =>
         aircraft.nomor_registrasi?.match(/^(REG-|BULK-TEST)/) ||
         aircraft.model_pesawat?.includes('Bulk Test')
@@ -709,23 +658,21 @@ class RollbackTester {
         try {
           await axios.delete(`${API_URL}/aircraft/${aircraft._id}`);
         } catch (error) {
-          // Continue with next aircraft
         }
       }
       
-      // Clean up bulk test passengers (more comprehensive patterns)
       const bulkTestPassengers = passengersResponse.data.filter(passenger =>
-        passenger.email?.startsWith('passenger') || // bulk test pattern from testing.js
+        passenger.email?.startsWith('passenger') || 
         passenger.email?.includes('bulktest') ||
         passenger.email?.includes('rollback.com') ||
         passenger.nama_penumpang?.startsWith('Passenger ') ||
         passenger.nama_penumpang?.startsWith('Bulk Test') ||
         passenger.nama_penumpang?.startsWith('Test Passenger') ||
-        passenger.nomor_passport?.match(/^(P2|BT)/) || // bulk test patterns
-        passenger.nomor_identitas?.startsWith('200') || // bulk test pattern
-        passenger.nomor_identitas?.startsWith('100') || // another bulk test pattern
-        passenger.nomor_telepon?.includes('123456') || // bulk test pattern
-        (passenger.nomor_telepon?.startsWith('+6281') && passenger.nomor_telepon?.length > 15) // bulk test phone pattern
+        passenger.nomor_passport?.match(/^(P2|BT)/) || 
+        passenger.nomor_identitas?.startsWith('200') || 
+        passenger.nomor_identitas?.startsWith('100') || 
+        passenger.nomor_telepon?.includes('123456') || 
+        (passenger.nomor_telepon?.startsWith('+6281') && passenger.nomor_telepon?.length > 15) 
       );
       
       console.log(`Cleaning up ${bulkTestPassengers.length} bulk test passengers...`);
@@ -740,11 +687,9 @@ class RollbackTester {
             console.log(`Cleaned up ${cleanedPassengers} passengers...`);
           }
         } catch (error) {
-          // Continue with next passenger
           console.log(`Failed to delete passenger ${passenger._id}: ${error.response?.data?.message || error.message}`);
         }
         
-        // Small delay to avoid overwhelming server
         if (cleanedPassengers % 20 === 0) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -760,7 +705,6 @@ class RollbackTester {
     }
   }
 
-  // Add a method to show current database state for debugging
   static async showDatabaseState() {
     console.log('📊 Current Database State:');
     
@@ -793,7 +737,6 @@ class RollbackTester {
         });
       }
       
-      // Use direct mongoose connection to check users
       try {
         const User = require('./models/user.model');
         const users = await User.find({});
@@ -814,7 +757,6 @@ class RollbackTester {
     }
   }
 
-  // Add the missing method to clean passengers by pattern
   static async cleanupPassengersByPattern() {
     console.log('🧹 Cleaning passengers by bulk test patterns...');
     
@@ -824,7 +766,6 @@ class RollbackTester {
       
       console.log(`Total passengers found: ${allPassengers.length}`);
       
-      // More aggressive pattern matching for bulk test passengers
       const bulkTestPassengers = allPassengers.filter(passenger => {
         const email = passenger.email || '';
         const name = passenger.nama_penumpang || '';
@@ -862,7 +803,6 @@ class RollbackTester {
             console.log(`Cleaned up ${cleanedCount}/${bulkTestPassengers.length} passengers...`);
           }
           
-          // Small delay every 10 deletions to avoid overwhelming the server
           if (cleanedCount % 10 === 0) {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
@@ -879,7 +819,6 @@ class RollbackTester {
     }
   }
 
-  // Add method to clean remaining test data
   static async cleanupRemainingTestData() {
     console.log('🧹 Cleaning up any remaining test data...');
     
@@ -889,7 +828,6 @@ class RollbackTester {
       
       console.log(`Current passengers: ${allPassengers.length}`);
       
-      // Look for any remaining test patterns
       const testPassengers = allPassengers.filter(passenger => {
         const email = passenger.email || '';
         const name = passenger.nama_penumpang || '';
@@ -929,12 +867,10 @@ class RollbackTester {
     }
   }
 
-  // Improved method to clean up users without corresponding passengers
   static async cleanupBrokenUserReferences() {
     console.log('🧹 Cleaning up users without corresponding passengers...');
     
     try {
-      // Get current passengers and users
       const passengersResponse = await axios.get(`${API_URL}/passengers`);
       const passengers = passengersResponse.data;
       const passengerIds = passengers.map(p => p._id);
@@ -947,13 +883,10 @@ class RollbackTester {
       let cleanedCount = 0;
       
       for (const user of users) {
-        // Check if user has a passenger reference
         if (user.penumpang_id) {
-          // Check if the referenced passenger actually exists
           if (!passengerIds.includes(user.penumpang_id.toString())) {
             console.log(`Found user with missing passenger: ${user.username} (${user.email}) -> passenger: ${user.penumpang_id}`);
             
-            // Delete the user with broken reference
             await User.findByIdAndDelete(user._id);
             console.log(`✅ Deleted user with broken passenger reference: ${user.username}`);
             cleanedCount++;
@@ -972,7 +905,6 @@ class RollbackTester {
     }
   }
 
-  // Improved consistency validation
   static async validateUserPassengerConsistency() {
     console.log('🔍 Validating user-passenger consistency...');
     
@@ -1020,9 +952,8 @@ class RollbackTester {
     try {
       console.log('🧪 Starting Comprehensive Rollback Testing...\n');
       
-      // Add option to clean up orphaned passengers first
       await this.cleanupTestData();
-      await this.cleanupOrphanedPassengers(); // Clean up orphans from previous runs
+      await this.cleanupOrphanedPassengers(); 
       await new Promise(resolve => setTimeout(resolve, 500));
       
       await this.testAuthenticationRollbacks();
@@ -1038,13 +969,12 @@ class RollbackTester {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       await this.validatePostTestConsistency();
-      await this.cleanupTestData(); // Final cleanup
+      await this.cleanupTestData(); 
       
       console.log('\n🎉 Rollback testing completed!');
     } catch (error) {
       console.error('Error during rollback testing:', error);
     } finally {
-      // Disconnect after a delay to ensure all operations complete
       setTimeout(() => {
         mongoose.disconnect();
         process.exit(0);
@@ -1052,37 +982,30 @@ class RollbackTester {
     }
   }
 
-  // Update the standalone cleanup method
   static async runCleanupOnly() {
     try {
       console.log('🧹 Running comprehensive cleanup of bulk test data...\n');
       
-      // Show initial state
       await this.showDatabaseState();
       console.log('');
       
-      // Simple validation first
       await this.validateUserPassengerConsistency();
       console.log('');
       
-      // Try multiple cleanup approaches
       await this.cleanupAllBulkTestData();
       await this.cleanupPassengersByPattern();
       await this.cleanupOrphanedPassengers();
-      await this.cleanupOrphanedTickets(); // Add orphaned ticket cleanup
+      await this.cleanupOrphanedTickets(); 
       await this.cleanupRemainingTestData();
       await this.cleanupBrokenReferences();
       await this.cleanupBrokenUserReferences();
       
-      // Validate again after cleanup
       console.log('');
       const isConsistent = await this.validateUserPassengerConsistency();
       
-      // Show final state
       console.log('');
       await this.showDatabaseState();
       
-      // Final validation
       await this.validatePostTestConsistency();
       
       if (isConsistent) {
@@ -1100,18 +1023,15 @@ class RollbackTester {
     }
   }
 
-  // Add the missing cleanupBrokenReferences method
   static async cleanupBrokenReferences() {
     console.log('🧹 Skipping complex broken reference detection...');
     console.log('✅ Using simplified user cleanup approach instead');
   }
 
-  // Add method to clean up tickets without corresponding passengers
   static async cleanupOrphanedTickets() {
     console.log('🧹 Cleaning up tickets without corresponding passengers...');
     
     try {
-      // Get current passengers and tickets
       const [passengersResponse, ticketsResponse] = await Promise.all([
         axios.get(`${API_URL}/passengers`),
         axios.get(`${API_URL}/tickets`)
@@ -1126,16 +1046,13 @@ class RollbackTester {
       let orphanedTickets = [];
       
       for (const ticket of tickets) {
-        // Check if ticket has a passenger reference
         if (ticket.penumpang_id) {
           const passengerId = ticket.penumpang_id._id || ticket.penumpang_id;
           
-          // Check if the referenced passenger actually exists
           if (!passengerIds.includes(passengerId.toString())) {
             orphanedTickets.push(ticket);
           }
         } else {
-          // Ticket without passenger reference is also orphaned
           orphanedTickets.push(ticket);
         }
       }
@@ -1169,15 +1086,12 @@ class RollbackTester {
   }
 }
 
-// Run tests if this file is executed directly
 if (require.main === module) {
   (async () => {
     try {
-      // Check if server is running
       await axios.get('http://localhost:3000/');
       console.log('Server is running. Starting rollback tests...\n');
       
-      // Check command line arguments for cleanup-only mode
       const args = process.argv.slice(2);
       if (args.includes('--cleanup-only')) {
         await RollbackTester.runCleanupOnly();

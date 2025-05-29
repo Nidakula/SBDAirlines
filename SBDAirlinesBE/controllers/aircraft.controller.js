@@ -33,13 +33,11 @@ const createAircraft = async (req, res) => {
       writeConcern: { w: 'majority', j: true }
     });
 
-    // Validate airline exists
     const airline = await Maskapai.findById(maskapai_id).session(session);
     if (!airline) {
       throw new Error('Invalid airline ID - airline not found');
     }
 
-    // Check for duplicate registration number
     const existingAircraft = await Pesawat.findOne({ 
       nomor_registrasi: nomor_registrasi 
     }).session(session);
@@ -124,7 +122,6 @@ const bulkCreateAircraft = async (req, res) => {
       return res.status(400).json({ message: 'Cannot create empty aircraft list' });
     }
 
-    // Validate data before starting transaction
     const registrationSet = new Set();
     const airlineIds = new Set();
 
@@ -147,7 +144,6 @@ const bulkCreateAircraft = async (req, res) => {
       writeConcern: { w: 'majority', j: true }
     });
 
-    // Validate all airline IDs exist
     const existingAirlines = await Maskapai.find({
       _id: { $in: Array.from(airlineIds) }
     }).session(session);
@@ -160,10 +156,9 @@ const bulkCreateAircraft = async (req, res) => {
 
     const startTime = Date.now();
     
-    // Use insertMany with session for atomic bulk operation
     const createdAircraft = await Pesawat.insertMany(req.body, { 
       session,
-      ordered: true // Stop on first error to maintain consistency
+      ordered: true 
     });
     
     await session.commitTransaction();
@@ -181,7 +176,6 @@ const bulkCreateAircraft = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     
-    // Handle MongoDB duplicate key errors
     if (error.code === 11000) {
       res.status(400).json({ 
         message: 'Duplicate registration number found in aircraft data' 

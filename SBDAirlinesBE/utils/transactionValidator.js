@@ -1,16 +1,8 @@
 const mongoose = require('mongoose');
 const { Penumpang, Tiket, Penerbangan } = require('../models/index.model');
-const User = require('../models/user.model'); // Direct import like in auth.controller.js
+const User = require('../models/user.model');
 
-/**
- * Validates the consistency of the database after transactions
- * This utility helps detect any data corruption or inconsistencies
- */
 class TransactionValidator {
-
-  /**
-   * Check for orphaned passenger records (passengers without users)
-   */
   static async checkOrphanedPassengers() {
     try {
       const passengersWithoutUsers = await Penumpang.aggregate([
@@ -33,10 +25,8 @@ class TransactionValidator {
         hasOrphans: passengersWithoutUsers.length > 0,
         count: passengersWithoutUsers.length,
         orphans: passengersWithoutUsers.map(p => ({
-          _id: p._id, // Include _id for cleanup
           id: p._id,
           email: p.email,
-          nama_penumpang: p.nama_penumpang, // Include full field name
           name: p.nama_penumpang
         }))
       };
@@ -45,9 +35,6 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Check for users without passenger records
-   */
   static async checkUsersWithoutPassengers() {
     try {
       const usersWithoutPassengers = await User.find({
@@ -71,9 +58,6 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Validate flight booking counts against actual tickets
-   */
   static async validateFlightBookingCounts() {
     try {
       const flights = await Penerbangan.find({});
@@ -107,9 +91,6 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Check for duplicate seat assignments
-   */
   static async checkDuplicateSeats() {
     try {
       const duplicates = await Tiket.aggregate([
@@ -145,14 +126,10 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Check for tickets referencing non-existent flights or passengers
-   */
   static async checkBrokenReferences() {
     try {
       const brokenReferences = [];
 
-      // Check for tickets with non-existent flights
       const ticketsWithInvalidFlights = await Tiket.aggregate([
         {
           $lookup: {
@@ -166,17 +143,9 @@ class TransactionValidator {
           $match: {
             flight: { $size: 0 }
           }
-        },
-        {
-          $project: {
-            _id: 1,
-            flight_id: 1,
-            seat_number: 1
-          }
         }
       ]);
 
-      // Check for tickets with non-existent passengers
       const ticketsWithInvalidPassengers = await Tiket.aggregate([
         {
           $lookup: {
@@ -190,13 +159,6 @@ class TransactionValidator {
           $match: {
             passenger: { $size: 0 }
           }
-        },
-        {
-          $project: {
-            _id: 1,
-            penumpang_id: 1,
-            seat_number: 1
-          }
         }
       ]);
 
@@ -204,12 +166,7 @@ class TransactionValidator {
         brokenReferences.push({
           type: 'invalid_flight_references',
           count: ticketsWithInvalidFlights.length,
-          tickets: ticketsWithInvalidFlights.map(t => t._id),
-          details: ticketsWithInvalidFlights.map(t => ({
-            ticketId: t._id,
-            invalidFlightId: t.flight_id,
-            seatNumber: t.seat_number
-          }))
+          tickets: ticketsWithInvalidFlights.map(t => t._id)
         });
       }
 
@@ -217,18 +174,13 @@ class TransactionValidator {
         brokenReferences.push({
           type: 'invalid_passenger_references',
           count: ticketsWithInvalidPassengers.length,
-          tickets: ticketsWithInvalidPassengers.map(t => t._id),
-          details: ticketsWithInvalidPassengers.map(t => ({
-            ticketId: t._id,
-            invalidPassengerId: t.penumpang_id,
-            seatNumber: t.seat_number
-          }))
+          tickets: ticketsWithInvalidPassengers.map(t => t._id)
         });
       }
 
       return {
         hasBrokenReferences: brokenReferences.length > 0,
-        count: brokenReferences.reduce((sum, ref) => sum + ref.count, 0),
+        count: brokenReferences.length,
         references: brokenReferences
       };
     } catch (error) {
@@ -236,9 +188,6 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Run all validation checks
-   */
   static async runFullValidation() {
     try {
       console.log('Running full database validation...');
@@ -288,9 +237,6 @@ class TransactionValidator {
     }
   }
 
-  /**
-   * Generate a summary of validation results
-   */
   static generateSummary(checks) {
     const summary = [];
 
