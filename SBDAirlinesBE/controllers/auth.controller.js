@@ -1,10 +1,14 @@
 const User = require('../models/user.model');
 const { Penumpang } = require('../models/index.model');
+const mongoose = require('mongoose');
 
 const register = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const { username, email, password, name, nomor_identitas, nomor_telepon, kewarganegaraan, role } = req.body;
 
+    // Check for existing user outside transaction for performance
     const existingUser = await User.findOne({ 
       $or: [{ email }, { username }] 
     });
@@ -15,59 +19,63 @@ const register = async (req, res) => {
       });
     }
 
+    // Start transaction with crash-safe settings
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true } // j: true ensures journal write for crash safety
+    });
+
     const passengerName = name || username;
     const nationality = kewarganegaraan || 'Not Specified';
     
-    try {
-      const newPassenger = new Penumpang({
-        nama_penumpang: passengerName,
-        nomor_identitas: nomor_identitas || '',
-        nomor_telepon: nomor_telepon || '',
-        email,
-        kewarganegaraan: nationality
-      });
-      
-      const savedPassenger = await newPassenger.save();
-      console.log("Passenger created successfully:", savedPassenger._id);
-      
-      const userRole = !role || role === 'passenger' ? 'passenger' : 'admin';
-      const newUser = new User({
-        username,
-        email,
-        password,
-        role: userRole,
-        penumpang_id: savedPassenger._id
-      });
-      
-      const savedUser = await newUser.save();
-      console.log("User created successfully:", savedUser._id);
-      
-      const userResponse = {
-        _id: savedUser._id,
-        username: savedUser.username,
-        email: savedUser.email,
-        role: savedUser.role,
-        penumpang_id: savedUser.penumpang_id
-      };
-      
-      res.status(201).json({
-        message: 'User registered successfully',
-        user: userResponse
-      });
-    } catch (error) {
-      console.error("Error during registration:", error);
-      
-      const passenger = await Penumpang.findOne({ email });
-      if (passenger) {
-        await Penumpang.findByIdAndDelete(passenger._id);
-        console.log("Cleaned up orphaned passenger record:", passenger._id);
-      }
-      
-      throw error;
-    }
+    // Create passenger within transaction
+    const newPassenger = new Penumpang({
+      nama_penumpang: passengerName,
+      nomor_identitas: nomor_identitas || '',
+      nomor_telepon: nomor_telepon || '',
+      email,
+      kewarganegaraan: nationality
+    });
+    
+    const savedPassenger = await newPassenger.save({ session });
+    console.log("Passenger created successfully:", savedPassenger._id);
+    
+    // Create user within transaction
+    const userRole = !role || role === 'passenger' ? 'passenger' : 'admin';
+    const newUser = new User({
+      username,
+      email,
+      password,
+      role: userRole,
+      penumpang_id: savedPassenger._id
+    });
+    
+    const savedUser = await newUser.save({ session });
+    console.log("User created successfully:", savedUser._id);
+    
+    // Commit transaction - atomic operation
+    await session.commitTransaction();
+    
+    const userResponse = {
+      _id: savedUser._id,
+      username: savedUser.username,
+      email: savedUser.email,
+      role: savedUser.role,
+      penumpang_id: savedUser.penumpang_id
+    };
+    
+    res.status(201).json({
+      message: 'User registered successfully',
+      user: userResponse
+    });
+
   } catch (error) {
     console.error("Registration error:", error);
+    // Automatic rollback on any failure (including system crash)
+    await session.abortTransaction();
     res.status(500).json({ message: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -113,6 +121,8 @@ const login = async (req, res) => {
 };
 
 const createPassengerForUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.params.id;
     const { name, nomor_identitas, nomor_telepon, kewarganegaraan } = req.body;
@@ -129,6 +139,12 @@ const createPassengerForUser = async (req, res) => {
       });
     }
 
+    // Start transaction
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+
     const passengerName = name || user.username;
     const nationality = kewarganegaraan || 'Not Specified';
     
@@ -140,24 +156,33 @@ const createPassengerForUser = async (req, res) => {
       kewarganegaraan: nationality
     });
 
-    const savedPassenger = await newPassenger.save();
+    const savedPassenger = await newPassenger.save({ session });
 
-    user.penumpang_id = savedPassenger._id;
-    await user.save();
+    // Update user with passenger ID within transaction
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { penumpang_id: savedPassenger._id },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
 
     res.status(201).json({
       message: 'Passenger record created successfully',
       user: {
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        penumpang_id: user.penumpang_id
+        _id: updatedUser._id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        penumpang_id: updatedUser.penumpang_id
       },
       passenger: savedPassenger
     });
   } catch (error) {
+    await session.abortTransaction();
     res.status(500).json({ message: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -166,7 +191,10 @@ const logout = (req, res) => {
 };
 
 const migrateUsers = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
+    // Find users without passenger IDs
     const users = await User.find({
       $or: [
         { penumpang_id: { $exists: false } },
@@ -174,8 +202,20 @@ const migrateUsers = async (req, res) => {
       ]
     });
 
+    if (users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found that need migration'
+      });
+    }
+
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+
     const results = [];
 
+    // Process users in batches to avoid memory issues
     for (const user of users) {
       const newPassenger = new Penumpang({
         nama_penumpang: user.username,
@@ -183,10 +223,13 @@ const migrateUsers = async (req, res) => {
         kewarganegaraan: 'Not Specified'
       });
 
-      const savedPassenger = await newPassenger.save();
+      const savedPassenger = await newPassenger.save({ session });
 
-      user.penumpang_id = savedPassenger._id;
-      await user.save();
+      await User.findByIdAndUpdate(
+        user._id,
+        { penumpang_id: savedPassenger._id },
+        { session }
+      );
 
       results.push({
         username: user.username,
@@ -194,12 +237,15 @@ const migrateUsers = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    await session.commitTransaction();    res.status(200).json({
       message: `Migrated ${results.length} users to have passenger IDs`,
       results
     });
   } catch (error) {
+    await session.abortTransaction();
     res.status(500).json({ message: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 

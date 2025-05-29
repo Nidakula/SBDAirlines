@@ -1,4 +1,5 @@
-const { Tiket } = require('../models/index.model');
+const { Tiket, Penerbangan, Penumpang } = require('../models/index.model');
+const mongoose = require('mongoose');
 
 const getAllTickets = async (req, res) => {
   try {
@@ -42,12 +43,88 @@ const getTicketById = async (req, res) => {
 };
 
 const createTicket = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
-    const newTicket = new Tiket(req.body);  // Here "Tiket" is used instead of "Ticket"
-    const savedTicket = await newTicket.save();
-    res.status(201).json(savedTicket);
+    const { flight_id, penumpang_id, seat_number, kelas, harga } = req.body;
+
+    // Start transaction
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+
+    // Validate foreign key references within transaction
+    const [flight, passenger] = await Promise.all([
+      Penerbangan.findById(flight_id).session(session),
+      Penumpang.findById(penumpang_id).session(session)
+    ]);
+
+    if (!flight) {
+      throw new Error('Invalid flight ID - flight not found');
+    }
+
+    if (!passenger) {
+      throw new Error('Invalid passenger ID - passenger not found');
+    }    // Check flight capacity and existing tickets
+    const existingTickets = await Tiket.countDocuments({ 
+      flight_id: flight_id 
+    }).session(session);
+
+    // Use flight's capacity or default
+    const flightCapacity = flight.kapasitas || 180;
+    
+    if (existingTickets >= flightCapacity) {
+      throw new Error('Flight is fully booked');
+    }
+
+    // Check for duplicate seat assignment
+    const seatTaken = await Tiket.findOne({ 
+      flight_id: flight_id, 
+      seat_number: seat_number 
+    }).session(session);
+
+    if (seatTaken) {
+      throw new Error(`Seat ${seat_number} is already taken`);
+    }
+
+    // Create ticket within transaction
+    const newTicket = new Tiket({
+      flight_id,
+      penumpang_id,
+      seat_number,
+      kelas,
+      harga
+    });
+      const savedTicket = await newTicket.save({ session });
+
+    // Update flight booking count
+    await Penerbangan.findByIdAndUpdate(
+      flight_id,
+      { $inc: { booked_seats: 1 } },
+      { session }
+    );
+
+    await session.commitTransaction();
+    
+    res.status(201).json({
+      message: 'Ticket created successfully',
+      ticket: savedTicket
+    });
+
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    await session.abortTransaction();
+    
+    // Handle specific MongoDB errors
+    if (error.code === 11000) {
+      res.status(400).json({ 
+        message: 'Duplicate seat assignment - seat already taken' 
+      });
+    } else {
+      res.status(400).json({ message: error.message });
+    }
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -70,16 +147,51 @@ const updateTicket = async (req, res) => {
 };
 
 const deleteTicket = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
-    const deletedTicket = await Tiket.findByIdAndDelete(req.params.id);
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+
+    const ticket = await Tiket.findById(req.params.id).session(session);
     
-    if (!deletedTicket) {
-      return res.status(404).json({ message: 'Ticket not found' });
+    if (!ticket) {
+      throw new Error('Ticket not found');
     }
+
+    // Delete the ticket
+    await Tiket.findByIdAndDelete(req.params.id).session(session);
+
+    // Decrement flight booking count
+    await Penerbangan.findByIdAndUpdate(
+      ticket.flight_id,
+      { $inc: { booked_seats: -1 } },
+      { session }
+    );
+
+    await session.commitTransaction();
     
-    res.status(200).json({ message: 'Ticket deleted successfully' });
+    res.status(200).json({ 
+      message: 'Ticket deleted successfully',
+      deletedTicket: {
+        id: ticket._id,
+        flight_id: ticket.flight_id,
+        seat_number: ticket.seat_number
+      }
+    });
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    await session.abortTransaction();
+    
+    if (error.message === 'Ticket not found') {
+      res.status(404).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: error.message });
+    }
+  } finally {
+    await session.endSession();
   }
 };
 
