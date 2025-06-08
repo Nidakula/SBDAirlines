@@ -1,73 +1,109 @@
 const User = require('../models/user.model');
 const { Penumpang } = require('../models/index.model');
+const mongoose = require('mongoose');
 
 const register = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const { username, email, password, name, nomor_identitas, nomor_telepon, kewarganegaraan, role } = req.body;
 
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
+    if (!username || !email || !password) {
+      return res.status(400).json({ 
+        message: 'Username, email, and password are required' 
+      });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        message: 'Invalid email format' 
+      });
+    }
+
+    await session.startTransaction({
+      readConcern: { level: 'snapshot' },
+      writeConcern: { w: 'majority', j: true },
+      readPreference: 'primary'
     });
 
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }] 
+    }).session(session);
+
     if (existingUser) {
-      return res.status(400).json({ 
-        message: 'User with this email or username already exists' 
-      });
+      throw new Error(existingUser.email === email ? 
+        'User with this email already exists' : 
+        'User with this username already exists'
+      );
+    }
+
+    const existingPassenger = await Penumpang.findOne({ email }).session(session);
+    if (existingPassenger) {
+      throw new Error('Passenger with this email already exists');
     }
 
     const passengerName = name || username;
     const nationality = kewarganegaraan || 'Not Specified';
     
-    try {
-      const newPassenger = new Penumpang({
-        nama_penumpang: passengerName,
-        nomor_identitas: nomor_identitas || '',
-        nomor_telepon: nomor_telepon || '',
-        email,
-        kewarganegaraan: nationality
-      });
-      
-      const savedPassenger = await newPassenger.save();
-      console.log("Passenger created successfully:", savedPassenger._id);
-      
-      const userRole = !role || role === 'passenger' ? 'passenger' : 'admin';
-      const newUser = new User({
-        username,
-        email,
-        password,
-        role: userRole,
-        penumpang_id: savedPassenger._id
-      });
-      
-      const savedUser = await newUser.save();
-      console.log("User created successfully:", savedUser._id);
-      
-      const userResponse = {
-        _id: savedUser._id,
-        username: savedUser.username,
-        email: savedUser.email,
-        role: savedUser.role,
-        penumpang_id: savedUser.penumpang_id
-      };
-      
-      res.status(201).json({
-        message: 'User registered successfully',
-        user: userResponse
-      });
-    } catch (error) {
-      console.error("Error during registration:", error);
-      
-      const passenger = await Penumpang.findOne({ email });
-      if (passenger) {
-        await Penumpang.findByIdAndDelete(passenger._id);
-        console.log("Cleaned up orphaned passenger record:", passenger._id);
-      }
-      
-      throw error;
-    }
+    const newPassenger = new Penumpang({
+      nama_penumpang: passengerName,
+      nomor_identitas: nomor_identitas || '',
+      nomor_telepon: nomor_telepon || '',
+      email,
+      kewarganegaraan: nationality
+    });
+    
+    const savedPassenger = await newPassenger.save({ session });
+    console.log("Passenger created successfully:", savedPassenger._id);
+    
+    const userRole = !role || role === 'passenger' ? 'passenger' : 'admin';
+    const newUser = new User({
+      username,
+      email,
+      password,
+      role: userRole,
+      penumpang_id: savedPassenger._id
+    });
+    
+    const savedUser = await newUser.save({ session });
+    console.log("User created successfully:", savedUser._id);
+    
+    await session.commitTransaction();
+    
+    const userResponse = {
+      _id: savedUser._id,
+      username: savedUser.username,
+      email: savedUser.email,
+      role: savedUser.role,
+      penumpang_id: savedUser.penumpang_id
+    };
+    
+    res.status(201).json({
+      message: 'User registered successfully',
+      user: userResponse
+    });
+
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(500).json({ message: error.message });
+    await session.abortTransaction();
+    
+    if (error.code === 11000) {
+      const field = error.keyPattern?.email ? 'email' : 'username';
+      res.status(400).json({ 
+        message: `User with this ${field} already exists` 
+      });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ 
+        message: error.message 
+      });
+    } else {
+      res.status(400).json({ 
+        message: error.message
+      });
+    }
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -113,6 +149,8 @@ const login = async (req, res) => {
 };
 
 const createPassengerForUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.params.id;
     const { name, nomor_identitas, nomor_telepon, kewarganegaraan } = req.body;
@@ -129,6 +167,11 @@ const createPassengerForUser = async (req, res) => {
       });
     }
 
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
+    });
+
     const passengerName = name || user.username;
     const nationality = kewarganegaraan || 'Not Specified';
     
@@ -140,24 +183,32 @@ const createPassengerForUser = async (req, res) => {
       kewarganegaraan: nationality
     });
 
-    const savedPassenger = await newPassenger.save();
+    const savedPassenger = await newPassenger.save({ session });
 
-    user.penumpang_id = savedPassenger._id;
-    await user.save();
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { penumpang_id: savedPassenger._id },
+      { new: true, session }
+    );
+
+    await session.commitTransaction();
 
     res.status(201).json({
       message: 'Passenger record created successfully',
       user: {
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        penumpang_id: user.penumpang_id
+        _id: updatedUser._id,
+        username: updatedUser.username,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        penumpang_id: updatedUser.penumpang_id
       },
       passenger: savedPassenger
     });
   } catch (error) {
+    await session.abortTransaction();
     res.status(500).json({ message: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -166,12 +217,25 @@ const logout = (req, res) => {
 };
 
 const migrateUsers = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const users = await User.find({
       $or: [
         { penumpang_id: { $exists: false } },
         { penumpang_id: null }
       ]
+    });
+
+    if (users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found that need migration'
+      });
+    }
+
+    await session.startTransaction({
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true }
     });
 
     const results = [];
@@ -183,10 +247,13 @@ const migrateUsers = async (req, res) => {
         kewarganegaraan: 'Not Specified'
       });
 
-      const savedPassenger = await newPassenger.save();
+      const savedPassenger = await newPassenger.save({ session });
 
-      user.penumpang_id = savedPassenger._id;
-      await user.save();
+      await User.findByIdAndUpdate(
+        user._id,
+        { penumpang_id: savedPassenger._id },
+        { session }
+      );
 
       results.push({
         username: user.username,
@@ -194,12 +261,15 @@ const migrateUsers = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    await session.commitTransaction();    res.status(200).json({
       message: `Migrated ${results.length} users to have passenger IDs`,
       results
     });
   } catch (error) {
+    await session.abortTransaction();
     res.status(500).json({ message: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 

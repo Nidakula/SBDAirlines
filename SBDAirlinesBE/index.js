@@ -13,6 +13,7 @@ const flightRoutes = require('./routes/flight.route');
 const ticketRoutes = require('./routes/ticket.route');
 const noteRoutes = require('./routes/note.route');
 const tagRoutes = require('./routes/tag.route');
+const validationRoutes = require('./routes/validation.route');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,7 @@ app.use('/api/flights', flightRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/tags', tagRoutes);
+app.use('/api/validation', validationRoutes);
 
 // Test route
 app.get('/', (req, res) => {

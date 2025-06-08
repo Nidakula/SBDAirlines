@@ -32,11 +32,19 @@ const penerbanganSchema = new mongoose.Schema({
     enum: ['On Time', 'Delayed', 'Cancelled'],
     default: 'On Time',
     required: true
-  },
-  gate_id: {
+  },  gate_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Gate',
     required: true
+  },
+  booked_seats: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  kapasitas: {
+    type: Number,
+    default: 180 // Default flight capacity
   }
 }, { timestamps: true });
 
